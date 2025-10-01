@@ -1,16 +1,20 @@
 import json
+import random
 from pathlib import Path
 from typing import Dict, Optional
 import sys
 from datetime import datetime
 
-def parse_detections(json_file: str, num_samples: Optional[int] = None) -> Dict[str, Dict]:
+def parse_detections(
+    json_file: str, num_samples: Optional[int] = None, shuffle: bool = False
+) -> Dict[str, Dict]:
     """
     Parse detection results from the master JSON file and format for MongoDB upload.
 
     Args:
         json_file (str): Path to the master JSON file
         num_samples (int, optional): Number of samples to process. If None, process all.
+        shuffle (bool, optional): Randomize the order of detections before processing.
 
     Returns:
         Dict[str, Dict]: Dictionary formatted for MongoDB with mediaIDs as keys
@@ -28,7 +32,12 @@ def parse_detections(json_file: str, num_samples: Optional[int] = None) -> Dict[
         data = json.load(f)
 
     # Get predictions to process
-    predictions = data["predictions"][:num_samples] if num_samples else data["predictions"]
+    predictions = data["predictions"].copy()
+
+    if shuffle:
+        random.shuffle(predictions)
+
+    predictions = predictions[:num_samples] if num_samples else predictions
 
     for pred in predictions:
         media_id = Path(pred["filepath"]).name.split(".")[0]
@@ -81,18 +90,24 @@ def parse_detections(json_file: str, num_samples: Optional[int] = None) -> Dict[
 
 def main():
     """Main function for parsing detection results"""
-    if len(sys.argv) != 2:
-        print("Usage: python detection_parser.py <path_to_json_file>")
+    if len(sys.argv) < 2:
+        print(
+            "Usage: python detection_parser.py <path_to_json_file> [--shuffle]"
+        )
         sys.exit(1)
 
     json_file = sys.argv[1]
+    shuffle = "--shuffle" in sys.argv[2:]
     if not Path(json_file).exists():
         print(f"Error: File not found: {json_file}")
         sys.exit(1)
 
     try:
         print("\nTesting with 5 sample records...")
-        results = parse_detections(json_file, num_samples=5)
+        if shuffle:
+            print("Shuffling input data before sampling...")
+
+        results = parse_detections(json_file, num_samples=5, shuffle=shuffle)
 
         print("\nSample outputs:")
         for media_id, result in results.items():
@@ -102,7 +117,7 @@ def main():
         save_all = input("\nDo you want to process and save all records? (y/n): ")
         if save_all.lower() == "y":
             print("\nProcessing all records...")
-            full_results = parse_detections(json_file)
+            full_results = parse_detections(json_file, shuffle=shuffle)
             output_file = "mongodb_formatted_detections.json"
             with open(output_file, "w") as f:
                 json.dump(full_results, f, indent=2)
